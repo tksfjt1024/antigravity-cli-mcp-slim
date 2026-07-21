@@ -20,6 +20,39 @@ def test_format_result_ok_returns_stdout_verbatim():
     assert _format_result({"ok": True, "stdout": "hello\n"}) == "hello\n"
 
 
+def test_format_result_ok_but_empty_stdout_surfaces_diagnostics():
+    # Regression guard: agy can exit 0 with empty stdout (e.g. a tool call was
+    # auto-denied for lacking a permissions.allow rule in headless mode). The
+    # ok branch must not swallow that signal as a bare empty string.
+    text = _format_result(
+        {
+            "ok": True,
+            "returncode": 0,
+            "stdout": "",
+            "stderr": 'jetski: no output produced — a tool required the "read_file" '
+            "permission that headless mode cannot prompt for, so it was auto-denied.",
+            "argv": ["agy", "--print", "q"],
+            "cwd": "/tmp",
+        }
+    )
+    assert "[WARNING]" in text
+    assert "auto-denied" in text
+    assert "argv:" in text
+    assert "cwd: /tmp" in text
+
+
+def test_format_result_ok_with_whitespace_only_stdout_surfaces_diagnostics():
+    assert "[WARNING]" in _format_result({"ok": True, "stdout": "   \n  "})
+
+
+def test_format_result_ok_empty_stdout_missing_optional_keys_does_not_raise():
+    # Mirrors the minimal-dict shape already used by
+    # test_format_result_ok_returns_stdout_verbatim: only ok/stdout present.
+    text = _format_result({"ok": True, "stdout": ""})
+    assert "[WARNING]" in text
+    assert "argv: None" in text
+
+
 def test_format_result_error_includes_diagnostics_and_partial_stdout():
     text = _format_result(
         {

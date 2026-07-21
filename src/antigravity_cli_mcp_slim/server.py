@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import logging
 import os
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,8 @@ logger = logging.getLogger("antigravity_cli_mcp_slim")
 AGY_CMD = os.environ.get("AGY_CMD", "agy")
 DEFAULT_TIMEOUT = int(os.environ.get("ANTIGRAVITY_CLI_MCP_SLIM_TIMEOUT", "660"))
 
-server: Server = Server("antigravity-cli-mcp-slim")
+_PKG_NAME = "antigravity-cli-mcp-slim"
+server: Server = Server(_PKG_NAME, version=_pkg_version(_PKG_NAME))
 
 
 def _build_argv(
@@ -137,7 +139,22 @@ async def _run_agy(
 
 def _format_result(result: dict[str, Any]) -> str:
     if result["ok"]:
-        return result["stdout"]
+        stdout = result.get("stdout", "")
+        if stdout.strip():
+            return stdout
+        # agy exited 0 but printed nothing on stdout. This is not necessarily
+        # success: e.g. a headless run that hits an unapproved tool permission
+        # (no allow-rule in settings.json) gets auto-denied and the agent
+        # loop ends with nothing to print, while the process itself still
+        # exits 0. Surface stderr/argv/cwd instead of a bare empty string so
+        # the caller can tell "nothing to report" from "agy couldn't work".
+        parts = ["[WARNING] agy exited successfully (returncode 0) but produced no stdout output."]
+        if result.get("stderr"):
+            parts.append(f"stderr:\n{result['stderr']}")
+        parts.append(f"argv: {result.get('argv')}")
+        if result.get("cwd"):
+            parts.append(f"cwd: {result['cwd']}")
+        return "\n\n".join(parts)
     parts = [f"[ERROR] {result.get('error', 'agy failed')}"]
     if "returncode" in result:
         parts.append(f"returncode={result['returncode']}")

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Fixed
+- `consult_agy` no longer returns a bare empty string when `agy` exits 0 but
+  prints nothing on stdout. This happens when a headless run auto-denies a
+  tool call that has no matching `permissions.allow` rule in `settings.json`
+  (even `read_file` is denied this way by default) — the agent loop ends
+  with nothing to print, but the process itself still exits 0. The result
+  now surfaces `[WARNING]` plus `stderr`/`argv`/`cwd` instead, so callers can
+  tell "nothing to report" from "agy couldn't work".
+- The MCP server now reports its own package version via
+  `importlib.metadata.version`, instead of whatever default the `mcp` SDK
+  falls back to when no `version` is passed to `Server(...)`.
+
 ## [0.1.0]
 
 ### Added
@@ -27,5 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--add-dir` invariant) and `tests/test_subprocess_stdin_isolation.py`
   (stdin DEVNULL invariant and a parallel smoke test).
 
-[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/releases/tag/v0.1.0
