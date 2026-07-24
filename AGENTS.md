@@ -127,6 +127,26 @@ before relying on the tool.
 Per the "minimum dependencies" principle above, anything beyond `mcp` should be
 weighed against a few dozen lines of standard-library code first.
 
+### Process-group kill uses `proc.pid` directly, not `os.getpgid(proc.pid)`
+
+`start_new_session=True` makes the subprocess both the session and
+process-group leader, so `proc.pid` **is** the pgid. `_kill_process_group`
+calls `os.killpg(proc.pid, ...)` directly; calling `os.getpgid(proc.pid)`
+first fails with `ProcessLookupError` once the leader has already
+exited/been reaped, even if descendants in the same group are still alive
+holding the stdout/stderr pipes open. A descendant that calls
+`setsid()`/`setpgid()` to leave the group is out of reach either way — a
+known limitation, not a bug to fix by walking the process tree.
+
+### Don't delete the `communicate_task.done()` narrow-race check in `_run_agy`
+
+If the subprocess finishes at (almost) the exact moment the first
+`wait_for`'s timeout fires, `communicate_task` may already be done by the
+time the `except asyncio.TimeoutError` handler runs. `_run_agy` checks this
+before killing anything and reports the real result instead of a false
+timeout. Regression test:
+`test_narrow_race_reports_success_when_process_finishes_at_timeout_edge`.
+
 ## References
 
 - Public docs: `README.md`

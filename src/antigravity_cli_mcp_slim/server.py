@@ -15,6 +15,8 @@ import asyncio
 import contextlib
 import logging
 import os
+import signal
+import sys
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Any
@@ -102,6 +104,8 @@ async def _run_agy(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            # own session, so timeout cleanup can kill the group (POSIX only, no-op elsewhere)
+            start_new_session=True,
         )
     except OSError as exc:
         return {
@@ -110,22 +114,54 @@ async def _run_agy(
             "argv": argv,
         }
 
+    # shield the task so a first-wait timeout doesn't cancel the second wait below
+    communicate_task = asyncio.ensure_future(
+        proc.communicate(stdin_text.encode() if stdin_text else None)
+    )
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(stdin_text.encode() if stdin_text else None),
-            timeout=timeout,
-        )
-    except asyncio.TimeoutError:
-        # The process may have exited between the timeout firing and this kill;
-        # suppress the resulting race rather than crashing the request handler.
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        await proc.wait()
-        return {
-            "ok": False,
-            "error": f"timeout after {timeout}s",
-            "argv": argv,
-        }
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                asyncio.shield(communicate_task), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            if communicate_task.done():
+                # narrow race: the process finished at the exact moment wait_for's timeout fired
+                stdout, stderr = await communicate_task
+                return {
+                    "ok": proc.returncode == 0,
+                    "returncode": proc.returncode,
+                    "stdout": stdout.decode("utf-8", errors="replace"),
+                    "stderr": stderr.decode("utf-8", errors="replace"),
+                    "argv": argv,
+                    "cwd": str(cwd_path),
+                }
+            _kill_process_group(proc)
+            stdout, stderr = b"", b""
+            with contextlib.suppress(asyncio.TimeoutError):
+                # kill above closes the pipes, so communicate() reaches EOF with the buffered output
+                stdout, stderr = await asyncio.wait_for(
+                    asyncio.shield(communicate_task), timeout=10
+                )
+            # bounded backstop: a D-state descendant can't be force-killed, so don't block forever
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(proc.wait(), timeout=10)
+            return {
+                "ok": False,
+                "error": f"timeout after {timeout}s",
+                "argv": argv,
+                "returncode": proc.returncode,
+                "stdout": stdout.decode("utf-8", errors="replace"),
+                "stderr": stderr.decode("utf-8", errors="replace"),
+                "cwd": str(cwd_path),
+            }
+    except asyncio.CancelledError:
+        _kill_process_group(proc)
+        raise
+    finally:
+        if not communicate_task.done():
+            communicate_task.cancel()
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await communicate_task
 
     return {
         "ok": proc.returncode == 0,
@@ -135,6 +171,17 @@ async def _run_agy(
         "argv": argv,
         "cwd": str(cwd_path),
     }
+
+
+def _kill_process_group(proc: asyncio.subprocess.Process) -> None:
+    """Kill agy's process group; a descendant that setsid/setpgid away from it is out of reach."""
+    if sys.platform != "win32":
+        # start_new_session=True makes agy pid==pgid, so killpg(proc.pid) works after agy exits too
+        with contextlib.suppress(OSError):
+            os.killpg(proc.pid, signal.SIGKILL)
+    # any killpg failure (not just the two anticipated OSError subclasses) must still fall back here
+    with contextlib.suppress(OSError):
+        proc.kill()
 
 
 def _format_result(result: dict[str, Any]) -> str:

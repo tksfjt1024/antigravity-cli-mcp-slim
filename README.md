@@ -170,6 +170,10 @@ Keep `timeout_seconds` longer than `print_timeout` so `agy` can finish or time
 out cleanly before the wrapper force-kills the subprocess. When you raise
 `print_timeout` for a long task, raise `timeout_seconds` to match.
 
+On timeout, the wrapper kills the subprocess's whole process group and then
+waits up to 20 additional seconds to collect any buffered output and reap the
+process, so the effective wall-clock ceiling is `timeout_seconds + 20`.
+
 ## Forward-compatibility example
 
 If a future `agy` release adds a new flag (say `--super-mode`), use it

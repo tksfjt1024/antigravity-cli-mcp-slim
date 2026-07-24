@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Fixed
+- On timeout, buffered stdout/stderr is now preserved instead of discarded.
+  Previously the wrapper returned only `{"ok": false, "error": "timeout after
+  Ns"}` with no output at all.
+- On timeout, the subprocess's whole process group is now killed
+  (`start_new_session=True` + `os.killpg`), not just the immediate child. This
+  fixes descendants surviving the timeout, including the case where the
+  process the wrapper launched has already exited (killpg now targets the pid
+  directly instead of failing to `os.getpgid()` a leader that's already been
+  reaped).
+- Cancelling the underlying MCP request (or any caller cancellation) now
+  reliably terminates the subprocess and its process group, instead of
+  leaving it running.
+- `_kill_process_group` now falls back to a plain `proc.kill()` on any
+  `OSError` from `killpg`, not just `ProcessLookupError`/`PermissionError`;
+  previously an unanticipated `OSError` subclass could skip the fallback
+  entirely and crash the request handler.
+- The wrapper's timeout is now bounded end-to-end (previously the final
+  `proc.wait()` after a kill had no timeout and could block indefinitely on a
+  subprocess stuck in an uninterruptible state).
+
+### Changed
+- The `Operating System :: OS Independent` classifier was replaced with
+  `Operating System :: POSIX`: process-group cleanup on timeout relies on
+  POSIX-only APIs (`start_new_session`, `os.killpg`) and degrades to
+  best-effort (killing only the immediate process) on Windows.
+
 ## [0.1.1]
 
 ### Fixed
@@ -41,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--add-dir` invariant) and `tests/test_subprocess_stdin_isolation.py`
   (stdin DEVNULL invariant and a parallel smoke test).
 
-[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/releases/tag/v0.1.0
