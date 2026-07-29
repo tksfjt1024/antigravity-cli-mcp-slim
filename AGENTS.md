@@ -32,8 +32,14 @@ choice; **default toward auditability**.
   one sitting. If a feature would meaningfully grow this size, prefer
   **dropping or omitting** the feature over splitting the file.
 - **Minimum dependencies**: `[project].dependencies` in `pyproject.toml` is
-  **`mcp>=1.0.0` only**. Adding a direct dependency expands supply-chain
-  surface; always check whether the standard library can do the job first.
+  **`mcp` only**, bounded to `>=1.0.0,<2`. Adding a direct dependency expands
+  supply-chain surface; always check whether the standard library can do the job
+  first. The upper bound is load-bearing rather than cautious: MCP Python SDK
+  2.0.0 dropped the low-level `Server.list_tools()` / `Server.call_tool()`
+  decorators this server is built on, so an unbounded requirement lets a fresh
+  install resolve to 2.x and die at import. Raise it only in the same change that
+  migrates to the v2 API — the SDK's own README asks v1 consumers to keep `<2`
+  until they migrate.
 - **Faithful CLI mapping**: typed parameters mirror the actual `agy` flag names
   one-to-one (`add_dir` → `--add-dir`, `dangerously_skip_permissions` →
   `--dangerously-skip-permissions`, `continue` → `--continue`, `conversation` →

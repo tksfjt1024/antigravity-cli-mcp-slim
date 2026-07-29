@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3]
+
+### Fixed
+- Bounded the `mcp` requirement to `>=1.0.0,<2`. MCP Python SDK 2.0.0 removed
+  the low-level `Server.list_tools()` / `Server.call_tool()` decorators this
+  server is built on, so any install that resolved the previously unbounded
+  `mcp>=1.0.0` to 2.x died at import with `AttributeError: 'Server' object has
+  no attribute 'list_tools'`. Environments already holding 1.x (through a
+  lockfile or an existing virtualenv) kept working, which is why the failure
+  surfaced only in fresh installs such as `uvx antigravity-cli-mcp-slim`.
+
 ## [0.1.2]
 
 ### Fixed
@@ -70,7 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--add-dir` invariant) and `tests/test_subprocess_stdin_isolation.py`
   (stdin DEVNULL invariant and a parallel smoke test).
 
-[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/releases/tag/v0.1.0
