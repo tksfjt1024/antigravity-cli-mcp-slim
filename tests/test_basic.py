@@ -5,14 +5,30 @@ from antigravity_cli_mcp_slim.server import AGY_CMD, _build_argv
 
 def test_build_argv_minimal():
     argv = _build_argv(query="hello")
-    assert argv == [AGY_CMD, "--print", "hello"]
+    assert argv == [AGY_CMD, "--print", "hello", "--output-format", "json"]
 
 
 def test_build_argv_prompt_is_token_right_after_print():
     # Regression guard: the prompt must sit immediately after --print so agy
-    # does not swallow a following flag as the prompt value.
+    # does not swallow a following flag as the prompt value. Observed failure mode:
+    # `agy --print --output-format json "<prompt>"` exits 0 having answered the
+    # question "what is --output-format" in plain text, so nothing looks wrong.
     argv = _build_argv(query="q", dangerously_skip_permissions=True)
     assert argv[:3] == [AGY_CMD, "--print", "q"]
+
+
+def test_build_argv_requests_json_output():
+    # The envelope is what lets the server tell "nothing to report" from "could not
+    # work" and hand back a conversation_id.
+    argv = _build_argv(query="q")
+    assert argv[argv.index("--output-format") + 1] == "json"
+
+
+def test_build_argv_extra_args_come_after_output_format():
+    # extra_args is the documented escape hatch, so a caller that passes its own
+    # --output-format has to win.
+    argv = _build_argv(query="q", extra_args=["--output-format", "text"])
+    assert argv[-2:] == ["--output-format", "text"]
 
 
 def test_build_argv_add_dir_is_repeated_not_comma_joined():
@@ -47,7 +63,7 @@ def test_build_argv_conversation():
 
 
 def test_build_argv_conversation_wins_over_continue():
-    # call_tool rejects both at once, but if both reach _build_argv, the
+    # consult_agy rejects both at once, but if both reach _build_argv, the
     # explicit conversation id takes precedence over --continue.
     argv = _build_argv(query="q", continue_=True, conversation="abc123")
     assert "--conversation" in argv

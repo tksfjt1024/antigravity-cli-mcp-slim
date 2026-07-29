@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Changed
+- Migrated to MCP Python SDK 2.x (`mcp>=2.0.0,<3`), lifting the `<2` ceiling that
+  0.1.3 added as a stopgap. v1.x now receives only critical fixes, so staying on
+  it meant riding a line that will stop getting security updates. The low-level
+  `Server` is kept: the high-level `MCPServer` derives every tool schema from a
+  Python function signature, and a wire parameter named `continue` cannot be
+  reached that way — `Field(alias="continue")` advertises the right name but then
+  fails the call with `unexpected keyword argument 'continue'`.
+- **Requires `agy >= 1.1.8`.** The server now always passes `--output-format
+  json`; older builds reject the flag. The response text is unchanged, but one
+  metadata line is appended carrying `status`, `conversation_id` and
+  `total_tokens`. `conversation_id` closes a gap: the `conversation` parameter
+  advertised the reliable way to resume a run without giving callers any way to
+  learn the id.
+- A failed `agy` run, a rejected argument and a caught exception now come back as
+  `isError` tool results rather than as successful calls whose text happens to
+  start with `[ERROR]`.
+- Dropped the OpenTelemetry middleware that SDK 2.x attaches by default, keeping
+  the request path free of an observation layer that reads `OTEL_*` from the
+  environment.
+
+### Fixed
+- Arguments are validated again. SDK 2.x advertises `inputSchema` but never
+  applies it, so `server.py` now checks types and ranges itself. Without this,
+  `"dangerously_skip_permissions": "false"` enabled
+  `--dangerously-skip-permissions` (a non-empty string is truthy), and a string
+  where `add_dir` or `extra_args` expects a list expanded into one flag per
+  character.
+- A `tools/call` that omits `arguments` entirely no longer raises: SDK 2.x passes
+  `None` where v1's decorator substituted `{}`.
+
+### Added
+- CI runs Python 3.14, which is the only version where `mcp` 2.x selects
+  `anyio>=4.10` and `starlette>=0.48.0`.
+
 ## [0.1.3]
 
 ### Fixed

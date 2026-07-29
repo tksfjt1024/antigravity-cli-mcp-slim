@@ -32,14 +32,25 @@ choice; **default toward auditability**.
   one sitting. If a feature would meaningfully grow this size, prefer
   **dropping or omitting** the feature over splitting the file.
 - **Minimum dependencies**: `[project].dependencies` in `pyproject.toml` is
-  **`mcp` only**, bounded to `>=1.0.0,<2`. Adding a direct dependency expands
+  **`mcp` only**, bounded to `>=2.0.0,<3`. Adding a direct dependency expands
   supply-chain surface; always check whether the standard library can do the job
   first. The upper bound is load-bearing rather than cautious: MCP Python SDK
   2.0.0 dropped the low-level `Server.list_tools()` / `Server.call_tool()`
-  decorators this server is built on, so an unbounded requirement lets a fresh
-  install resolve to 2.x and die at import. Raise it only in the same change that
-  migrates to the v2 API — the SDK's own README asks v1 consumers to keep `<2`
-  until they migrate.
+  decorators this server had been built on, so the unbounded `>=1.0.0` it shipped
+  with let a fresh install resolve to 2.x and die at import. Raise it only in the
+  same change that migrates to the next major API.
+  Moving to 2.0.0 pulled `mcp-types`, `httpx2`, `opentelemetry-api` and
+  `truststore` into the transitive set and dropped `httpx-sse`,
+  `pydantic-settings` and `python-dotenv` (measured with `uv lock`).
+  `jsonschema` stays a required dependency of `mcp` itself, which is why the
+  argument checking in `server.py` is hand-written: declaring `jsonschema`
+  directly would install nothing new, but it would spend the "direct
+  dependencies are `mcp` only" rule on a job the standard library can do.
+- **`agy >= 1.1.8`**: the server always passes `--output-format json`, which
+  older builds reject as an unknown flag. The envelope is not a nicety — it
+  carries the `status` that separates "agy had nothing to report" from "agy
+  could not do its work", and the `conversation_id` a caller needs in order to
+  use the `conversation` parameter the tool already advertised.
 - **Faithful CLI mapping**: typed parameters mirror the actual `agy` flag names
   one-to-one (`add_dir` → `--add-dir`, `dangerously_skip_permissions` →
   `--dangerously-skip-permissions`, `continue` → `--continue`, `conversation` →
@@ -90,6 +101,26 @@ The package is published to PyPI via Trusted Publishing
 - `CHANGELOG.md` follows Keep a Changelog; add a new entry per release.
 
 ## Common gotchas
+
+### v2 dropped two jobs the `@server.call_tool()` decorator used to do
+
+In v1 the decorator was not just registration. Outside the handler it ran
+`jsonschema.validate` against the advertised `inputSchema`, and it converted any
+handler exception into a `CallToolResult(isError=True)`. The low-level `Server`
+in v2 does neither: the schema is advertised and never applied, and an escaping
+exception becomes a JSON-RPC error, which clients treat as a transport failure
+rather than as something to show the model.
+
+Both are re-implemented in `server.py` (`_validate_args`, and the `except
+Exception` in `on_call_tool`). Do not thin them out on the grounds that the
+schema already says so — the schema is documentation to the SDK now. Checking
+only that the required keys are present is specifically not enough: every value
+reaches argv, `bool("false")` is `True`, and a string where a list belongs
+iterates character by character.
+
+The `except Exception` is deliberately not `except BaseException`:
+`CancelledError` has to keep propagating so peer cancellation still reaches
+`_run_agy`'s process-group kill.
 
 ### Keep the prompt as the token right after `--print`
 

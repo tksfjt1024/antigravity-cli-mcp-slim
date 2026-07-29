@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import signal
@@ -21,9 +22,16 @@ from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Any
 
-from mcp.server import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
+)
 
 logger = logging.getLogger("antigravity_cli_mcp_slim")
 
@@ -31,7 +39,8 @@ AGY_CMD = os.environ.get("AGY_CMD", "agy")
 DEFAULT_TIMEOUT = int(os.environ.get("ANTIGRAVITY_CLI_MCP_SLIM_TIMEOUT", "660"))
 
 _PKG_NAME = "antigravity-cli-mcp-slim"
-server: Server = Server(_PKG_NAME, version=_pkg_version(_PKG_NAME))
+# The Server is built at the bottom of this file: v2 takes the handlers as constructor
+# arguments, so they must already be defined by the time it is constructed.
 
 
 def _build_argv(
@@ -48,8 +57,15 @@ def _build_argv(
     # The prompt must be the token immediately after --print. agy treats
     # --print as a string flag, so anything placed between --print and the
     # prompt would be swallowed as the prompt text. Keep `query` first; every
-    # other flag follows it.
-    argv: list[str] = [AGY_CMD, "--print", query]
+    # other flag follows it. Getting this wrong fails silently: `agy --print
+    # --output-format json "<prompt>"` exits 0 having answered the question
+    # "what is --output-format" in plain text.
+    #
+    # --output-format json (agy >= 1.1.8) is what lets this server tell "agy had
+    # nothing to report" from "agy could not do its work" via the envelope's
+    # `status`, and hand the caller a `conversation_id` it can pass back as
+    # `conversation`. extra_args is appended last, so a caller can still override it.
+    argv: list[str] = [AGY_CMD, "--print", query, "--output-format", "json"]
     for d in add_dir or []:
         argv += ["--add-dir", d]  # repeatable flag: one --add-dir per directory
     if dangerously_skip_permissions:
@@ -184,18 +200,59 @@ def _kill_process_group(proc: asyncio.subprocess.Process) -> None:
         proc.kill()
 
 
+def _parse_agy_json(stdout: str) -> dict[str, Any] | None:
+    """Return agy's --output-format json envelope, or None when stdout is not one.
+
+    Returning None instead of raising keeps the plain-text path working for a caller that
+    overrides --output-format through extra_args.
+    """
+    text = stdout.strip()
+    if not text:
+        return None
+    try:
+        envelope = json.loads(text)
+    except ValueError:
+        return None
+    return envelope if isinstance(envelope, dict) and "response" in envelope else None
+
+
+def _agy_trailer(envelope: dict[str, Any]) -> str:
+    """One line of run metadata, appended under agy's own text.
+
+    `conversation_id` is here because the tool advertises `conversation` as the reliable
+    way to resume a run, yet before agy grew --output-format json a caller had no way to
+    learn the id it was supposed to pass back.
+    """
+    bits = [f"status={envelope.get('status') or 'UNKNOWN'}"]
+    conversation_id = envelope.get("conversation_id")
+    if conversation_id:
+        bits.append(f"conversation_id={conversation_id}")
+    usage = envelope.get("usage")
+    if isinstance(usage, dict) and usage.get("total_tokens") is not None:
+        bits.append(f"total_tokens={usage['total_tokens']}")
+    return "[agy] " + " ".join(bits)
+
+
 def _format_result(result: dict[str, Any]) -> str:
     if result["ok"]:
         stdout = result.get("stdout", "")
-        if stdout.strip():
-            return stdout
-        # agy exited 0 but printed nothing on stdout. This is not necessarily
-        # success: e.g. a headless run that hits an unapproved tool permission
-        # (no allow-rule in settings.json) gets auto-denied and the agent
-        # loop ends with nothing to print, while the process itself still
-        # exits 0. Surface stderr/argv/cwd instead of a bare empty string so
-        # the caller can tell "nothing to report" from "agy couldn't work".
-        parts = ["[WARNING] agy exited successfully (returncode 0) but produced no stdout output."]
+        envelope = _parse_agy_json(stdout)
+        if envelope is None:
+            if stdout.strip():
+                return stdout
+            parts = [
+                "[WARNING] agy exited successfully (returncode 0) but produced no stdout output."
+            ]
+        else:
+            response = str(envelope.get("response") or "")
+            if response.strip():
+                return f"{response.rstrip()}\n\n{_agy_trailer(envelope)}"
+            # agy exited 0 with an empty response. Without the envelope this was
+            # indistinguishable from a run that could not work: a headless run that hits an
+            # unapproved tool permission (no allow-rule in settings.json) gets auto-denied
+            # and the agent loop ends with nothing to print, while the process still exits
+            # 0. `status` in the trailer is what tells those two apart now.
+            parts = ["[WARNING] agy returned no response text.", _agy_trailer(envelope)]
         if result.get("stderr"):
             parts.append(f"stderr:\n{result['stderr']}")
         parts.append(f"argv: {result.get('argv')}")
@@ -205,6 +262,9 @@ def _format_result(result: dict[str, Any]) -> str:
     parts = [f"[ERROR] {result.get('error', 'agy failed')}"]
     if "returncode" in result:
         parts.append(f"returncode={result['returncode']}")
+    failed_envelope = _parse_agy_json(result.get("stdout", ""))
+    if failed_envelope is not None:
+        parts.append(_agy_trailer(failed_envelope))
     if result.get("stderr"):
         parts.append(f"stderr:\n{result['stderr']}")
     if result.get("stdout"):
@@ -295,41 +355,91 @@ _TOOL_PROPS: dict[str, Any] = {
 }
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="consult_agy",
-            description=(
-                "Run a single agy (Antigravity CLI) invocation in non-interactive print mode. "
-                "agy is an agentic coding assistant that autonomously reads files and works inside "
-                "`directory` (plus any `add_dir`). Forward-compatible: unknown CLI flags can be "
-                "passed via `extra_args`. The agy binary path is configurable via $AGY_CMD."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": _TOOL_PROPS,
-                "required": ["query", "directory"],
-            },
-        ),
-    ]
+_TOOL = Tool(
+    name="consult_agy",
+    description=(
+        "Run a single agy (Antigravity CLI) invocation in non-interactive print mode. "
+        "agy is an agentic coding assistant that autonomously reads files and works inside "
+        "`directory` (plus any `add_dir`). Forward-compatible: unknown CLI flags can be "
+        "passed via `extra_args`. The agy binary path is configurable via $AGY_CMD."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": _TOOL_PROPS,
+        "required": ["query", "directory"],
+    },
+)
+
+_BOOL_FIELDS = ("dangerously_skip_permissions", "sandbox", "continue")
+_STR_FIELDS = ("query", "directory", "conversation", "print_timeout")
+_STR_ARRAY_FIELDS = ("add_dir", "extra_args")
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-    if name != "consult_agy":
-        return [TextContent(type="text", text=f"unknown tool: {name}")]
+def _validate_args(args: dict[str, Any]) -> str | None:
+    """Return the first schema violation, or None when the arguments are usable.
 
-    args = dict(arguments)
+    v1 ran jsonschema against `inputSchema` before the handler saw the arguments. v2's
+    low-level Server advertises the schema and never applies it, so this walks the same
+    eleven properties by hand. Checking only that the required keys are present is not
+    enough: every value here reaches argv.
+    """
+    for key in ("query", "directory"):
+        if key not in args:
+            return f"`{key}` is required"
+    for key in _STR_FIELDS:
+        value = args.get(key)
+        if value is not None and not isinstance(value, str):
+            return f"`{key}` must be a string, got {type(value).__name__}"
+    if not args["query"]:
+        return "`query` must not be empty"
+    for key in _BOOL_FIELDS:
+        value = args.get(key)
+        # An exact type check rather than truthiness: `bool("false")` is True, and for
+        # dangerously_skip_permissions that would silently auto-approve every tool
+        # permission request agy makes.
+        if value is not None and not isinstance(value, bool):
+            return f"`{key}` must be a boolean, got {type(value).__name__}"
+    for key in _STR_ARRAY_FIELDS:
+        value = args.get(key)
+        if value is None:
+            continue
+        # A bare string satisfies `for d in add_dir` and `list(extra_args)` but iterates
+        # character by character, so "docs" would expand into four --add-dir flags.
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            return f"`{key}` must be an array of strings"
+    env = args.get("env")
+    if env is not None and (
+        not isinstance(env, dict)
+        or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())
+    ):
+        return "`env` must be an object mapping strings to strings"
+    timeout = args.get("timeout_seconds")
+    if timeout is not None:
+        # bool subclasses int, so it has to be excluded before isinstance would accept it
+        if isinstance(timeout, bool) or not isinstance(timeout, int):
+            return f"`timeout_seconds` must be an integer, got {type(timeout).__name__}"
+        if not 30 <= timeout <= 3600:
+            return f"`timeout_seconds` must be between 30 and 3600, got {timeout}"
+    return None
+
+
+def _error_result(text: str) -> CallToolResult:
+    return CallToolResult(content=[TextContent(type="text", text=f"[ERROR] {text}")], is_error=True)
+
+
+async def consult_agy(arguments: dict[str, Any] | None) -> CallToolResult:
+    """The tool body, taking a plain dict so callers need no SDK request object."""
+    # v1's decorator normalised a missing `arguments` key to {}; v2 hands the None through.
+    args = dict(arguments or {})
+
+    invalid = _validate_args(args)
+    if invalid is not None:
+        return _error_result(f"input validation: {invalid}")
+
     continue_ = bool(args.get("continue", False))
     conversation = args.get("conversation")
     if continue_ and conversation:
-        return [
-            TextContent(
-                type="text",
-                text="[ERROR] `continue` and `conversation` are mutually exclusive; pass only one.",
-            )
-        ]
+        return _error_result("`continue` and `conversation` are mutually exclusive; pass only one")
 
     argv = _build_argv(
         query=args["query"],
@@ -348,7 +458,45 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         timeout=int(args.get("timeout_seconds") or DEFAULT_TIMEOUT),
         env_overrides=args.get("env"),
     )
-    return [TextContent(type="text", text=_format_result(result))]
+    # v1 reported an agy failure as a successful tool call whose text merely started with
+    # [ERROR]. is_error makes the failure legible to the client as a failed tool call.
+    return CallToolResult(
+        content=[TextContent(type="text", text=_format_result(result))],
+        is_error=not result["ok"],
+    )
+
+
+async def on_list_tools(
+    ctx: ServerRequestContext, params: PaginatedRequestParams | None
+) -> ListToolsResult:
+    return ListToolsResult(tools=[_TOOL])
+
+
+async def on_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+    # v1's decorator turned handler exceptions into isError results. v2 has no such layer,
+    # and an escaping exception becomes a JSON-RPC error, which clients treat as a transport
+    # failure rather than as something to show the model. CancelledError derives from
+    # BaseException, so peer cancellation still propagates and _run_agy's killpg still runs.
+    try:
+        if params.name != "consult_agy":
+            return _error_result(f"unknown tool: {params.name}")
+        return await consult_agy(params.arguments)
+    except Exception as exc:
+        logger.exception("consult_agy failed")
+        return _error_result(f"{type(exc).__name__}: {exc}")
+
+
+server: Server = Server(
+    _PKG_NAME,
+    version=_pkg_version(_PKG_NAME),
+    on_list_tools=on_list_tools,
+    on_call_tool=on_call_tool,
+)
+# v2 attaches an OpenTelemetryMiddleware by default. It is a no-op without an exporter, but
+# it puts a tracing layer on the path of every request and reads OTEL_* environment
+# variables in-process. This file is meant to be the whole story, so the layer is dropped
+# rather than left implicit; delete this line to get the SDK default back.
+server.middleware.clear()
 
 
 async def _amain() -> None:
