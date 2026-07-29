@@ -222,8 +222,15 @@ def _agy_trailer(envelope: dict[str, Any]) -> str:
     `conversation_id` is here because the tool advertises `conversation` as the reliable
     way to resume a run, yet before agy grew --output-format json a caller had no way to
     learn the id it was supposed to pass back.
+
+    `error` is agy's own reason for a run that did not work — a `--print-timeout` hit
+    returns `status=ERROR` with `error="timeout waiting for response"` (observed). Without
+    it here the reason would survive only inside the raw stdout dump of the failure branch.
     """
     bits = [f"status={envelope.get('status') or 'UNKNOWN'}"]
+    error = envelope.get("error")
+    if error:
+        bits.append(f"error={error}")
     conversation_id = envelope.get("conversation_id")
     if conversation_id:
         bits.append(f"conversation_id={conversation_id}")
@@ -231,6 +238,21 @@ def _agy_trailer(envelope: dict[str, Any]) -> str:
     if isinstance(usage, dict) and usage.get("total_tokens") is not None:
         bits.append(f"total_tokens={usage['total_tokens']}")
     return "[agy] " + " ".join(bits)
+
+
+def _run_failed(result: dict[str, Any]) -> bool:
+    """Whether the client should see this as a failed tool call.
+
+    A non-zero exit is always a failure. The envelope's `error` is consulted on top of
+    that because it is agy's own verdict on the run rather than the shell's: a
+    `--print-timeout` hit fills it (and exits 1), so an exit-0 path that still carries an
+    `error` would otherwise be handed back as a successful call whose failure shows up
+    only in the text a human reads.
+    """
+    if not result["ok"]:
+        return True
+    envelope = _parse_agy_json(result.get("stdout", ""))
+    return bool(envelope and envelope.get("error"))
 
 
 def _format_result(result: dict[str, Any]) -> str:
@@ -252,7 +274,11 @@ def _format_result(result: dict[str, Any]) -> str:
             # unapproved tool permission (no allow-rule in settings.json) gets auto-denied
             # and the agent loop ends with nothing to print, while the process still exits
             # 0. `status` in the trailer is what tells those two apart now.
-            parts = ["[WARNING] agy returned no response text.", _agy_trailer(envelope)]
+            #
+            # The marker follows the same envelope field _run_failed reads, so the text does
+            # not open with [WARNING] on a result the client is being handed as isError.
+            marker = "[ERROR]" if envelope.get("error") else "[WARNING]"
+            parts = [f"{marker} agy returned no response text.", _agy_trailer(envelope)]
         if result.get("stderr"):
             parts.append(f"stderr:\n{result['stderr']}")
         parts.append(f"argv: {result.get('argv')}")
@@ -384,7 +410,10 @@ def _validate_args(args: dict[str, Any]) -> str | None:
     enough: every value here reaches argv.
     """
     for key in ("query", "directory"):
-        if key not in args:
+        # `is None`, not `not in`: an explicit null passes the presence check but then
+        # reaches Path(None) in _run_agy, where it surfaces as a TypeError the caller
+        # cannot act on instead of as the schema violation it is.
+        if args.get(key) is None:
             return f"`{key}` is required"
     for key in _STR_FIELDS:
         value = args.get(key)
@@ -462,7 +491,7 @@ async def consult_agy(arguments: dict[str, Any] | None) -> CallToolResult:
     # [ERROR]. is_error makes the failure legible to the client as a failed tool call.
     return CallToolResult(
         content=[TextContent(type="text", text=_format_result(result))],
-        is_error=not result["ok"],
+        is_error=_run_failed(result),
     )
 
 
