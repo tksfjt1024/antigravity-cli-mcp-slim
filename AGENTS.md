@@ -46,11 +46,13 @@ choice; **default toward auditability**.
   argument checking in `server.py` is hand-written: declaring `jsonschema`
   directly would install nothing new, but it would spend the "direct
   dependencies are `mcp` only" rule on a job the standard library can do.
-- **`agy >= 1.1.8`**: the server always passes `--output-format json`, which
-  older builds reject as an unknown flag. The envelope is not a nicety — it
-  carries the `status` that separates "agy had nothing to report" from "agy
-  could not do its work", and the `conversation_id` a caller needs in order to
-  use the `conversation` parameter the tool already advertised.
+- **`agy >= 1.1.8`**: the server always passes `--output-format json`. 1.1.8 is the
+  release that documents and supports the flag; 1.1.7 accepts it too but does not list
+  it in `--help` (measured), and this server does not lean on undocumented behaviour.
+  The envelope is not a nicety — it carries the `status` and `error` that separate
+  "agy had nothing to report" from "agy could not do its work", and the
+  `conversation_id` a caller needs in order to use the `conversation` parameter the
+  tool already advertised.
 - **Faithful CLI mapping**: typed parameters mirror the actual `agy` flag names
   one-to-one (`add_dir` → `--add-dir`, `dangerously_skip_permissions` →
   `--dangerously-skip-permissions`, `continue` → `--continue`, `conversation` →
@@ -89,16 +91,31 @@ principle.
 
 ## Release flow
 
-The package is published to PyPI via Trusted Publishing
-(`.github/workflows/publish.yml`), triggered by pushing a `v*` tag.
+Pushing a `v*` tag runs `.github/workflows/publish.yml`, which uploads to PyPI
+via Trusted Publishing and then creates the GitHub release. Both are driven by
+the tag; neither is done by hand.
 
 - The single source of truth for the version is `pyproject.toml`'s
-  `[project].version`. Bump it in the same PR as the change.
+  `[project].version`. Bump it in the same commit as the change.
 - `src/antigravity_cli_mcp_slim/__init__.py` exposes `__version__` via
   `importlib.metadata`, so it follows `pyproject.toml` automatically.
-- After merge: `git tag vX.Y.Z && git push origin vX.Y.Z`. The publish workflow
-  picks it up.
-- `CHANGELOG.md` follows Keep a Changelog; add a new entry per release.
+- `CHANGELOG.md` follows Keep a Changelog: add a `## [X.Y.Z]` entry per release,
+  plus the matching `[X.Y.Z]: .../compare/vA.B.C...vX.Y.Z` link at the bottom.
+- Once the bump and its CHANGELOG entry are on `main`:
+  `git tag vX.Y.Z && git push origin vX.Y.Z`. The workflow picks it up.
+
+### `CHANGELOG.md` is the release body, not only documentation
+
+Both jobs run `.github/scripts/changelog-section.sh`, which prints the section headed
+exactly `## [X.Y.Z]` — the tag with its leading `v` stripped — and exits non-zero when
+that section is missing or empty. `github-release` turns its output into the release
+body (plus a `**Full Changelog**` line pointing at the previous tag); `publish` runs it
+purely as a gate, before it uploads anything.
+
+One script rather than two transcriptions of the same rule is the point. PyPI refuses a
+second upload of a version it already holds, so a gate that merely resembled the builder
+could pass while the builder later failed — and that failure is the unrecoverable one:
+the version would be live on PyPI with no way to release it short of a version bump.
 
 ## Common gotchas
 
@@ -121,6 +138,16 @@ iterates character by character.
 The `except Exception` is deliberately not `except BaseException`:
 `CancelledError` has to keep propagating so peer cancellation still reaches
 `_run_agy`'s process-group kill.
+
+### The exit code is not the whole verdict on an agy run
+
+`_run_failed` consults the envelope's `error` on top of the exit code, and `is_error`
+follows it. agy fills that field with its own reason when a run did not work — a
+`--print-timeout` hit returns `status=ERROR` with `error="timeout waiting for
+response"` — so a wrapper that trusted the exit code alone would hand such a run back
+as a successful tool call whose failure is legible only to a human reading the text.
+The trailer carries `error` for the same reason: otherwise it survives only inside the
+raw stdout dump that the non-zero-exit branch happens to print.
 
 ### Keep the prompt as the token right after `--print`
 

@@ -36,8 +36,8 @@ Read `server.py` before you install. That is the point.
   to via `$AGY_CMD`). See the
   [official Antigravity CLI repository](https://github.com/google-antigravity/antigravity-cli)
   and [install docs](https://antigravity.google/docs/cli-overview).
-  1.1.8 is where `--output-format json` arrived; this server always asks for it,
-  and older builds reject the flag.
+  This server always passes `--output-format json`, and 1.1.8 is the first release
+  to document and support that flag.
 - `agy` already **authenticated** — this wrapper does not manage login; it
   surfaces `agy`'s own error output if the CLI is not ready.
 
@@ -111,6 +111,15 @@ The tool returns `agy`'s response text followed by one metadata line:
 [agy] status=SUCCESS conversation_id=133cb55a-5128-463a-835c-b8362519876f total_tokens=18035
 ```
 
+`status` is whatever `agy` reported for the run and is always present; the other fields
+appear only when the run produced them. The values shown here are examples, not the full
+set `agy` can return. A run `agy` itself calls failed also carries its reason in `error`,
+and the tool result is flagged `isError` instead of coming back as a successful call:
+
+```
+[agy] status=ERROR error=timeout waiting for response conversation_id=a35d1505-804e-4159-9c76-ea2ff821c290
+```
+
 Pass that `conversation_id` back as `conversation` to resume the same run.
 Prefer it over `continue`, which races with any other invocation for whichever
 conversation happens to be the most recent one.
@@ -156,7 +165,7 @@ the workspace:
 }
 ```
 
-This launches `agy --print "..." --add-dir /path/to/client-a --add-dir /path/to/client-b`,
+This launches `agy --print "..." --output-format json --add-dir /path/to/client-a --add-dir /path/to/client-b`,
 giving the agent read access to all three workspaces in one session.
 
 ## Conversation continuity

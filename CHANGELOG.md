@@ -17,15 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Python function signature, and a wire parameter named `continue` cannot be
   reached that way — `Field(alias="continue")` advertises the right name but then
   fails the call with `unexpected keyword argument 'continue'`.
-- **Requires `agy >= 1.1.8`.** The server now always passes `--output-format
-  json`; older builds reject the flag. The response text is unchanged, but one
-  metadata line is appended carrying `status`, `conversation_id` and
-  `total_tokens`. `conversation_id` closes a gap: the `conversation` parameter
-  advertised the reliable way to resume a run without giving callers any way to
-  learn the id.
+- **Requires `agy >= 1.1.8`**, the release that documents and supports
+  `--output-format json`, which the server now always passes. `agy`'s response text
+  still comes back first (with trailing whitespace trimmed), followed by one metadata
+  line carrying `status` plus whichever of `error`, `conversation_id` and
+  `total_tokens` the run reported. `conversation_id` closes a gap: the `conversation`
+  parameter advertised the reliable way to resume a run without giving callers any way
+  to learn the id.
 - A failed `agy` run, a rejected argument and a caught exception now come back as
   `isError` tool results rather than as successful calls whose text happens to
-  start with `[ERROR]`.
+  start with `[ERROR]`. "Failed" follows `agy`'s own verdict as well as the exit
+  code: an envelope carrying an `error` counts even on a zero exit.
 - Dropped the OpenTelemetry middleware that SDK 2.x attaches by default, keeping
   the request path free of an observation layer that reads `OTEL_*` from the
   environment.
@@ -39,10 +41,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   character.
 - A `tools/call` that omits `arguments` entirely no longer raises: SDK 2.x passes
   `None` where v1's decorator substituted `{}`.
+- An explicit `null` for `query` or `directory` is reported as the missing required
+  argument it is. It used to clear the presence check and reach `Path(None)`, coming
+  back as a `TypeError` that told the caller nothing actionable.
 
 ### Added
+- Pushing a `v*` tag now creates the GitHub release as well as uploading to PyPI.
+  The body is this file's section for that version, and a tag whose version has no
+  entry here fails before anything is uploaded: PyPI refuses a second upload of a
+  version it already holds, so failing after the upload would leave a published
+  version that cannot be released without a version bump.
 - CI runs Python 3.14, which is the only version where `mcp` 2.x selects
-  `anyio>=4.10` and `starlette>=0.48.0`.
+  `anyio>=4.10` and `starlette>=0.48.0`; the Trove classifiers list it too.
 
 ## [0.1.3]
 
@@ -118,7 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--add-dir` invariant) and `tests/test_subprocess_stdin_isolation.py`
   (stdin DEVNULL invariant and a parallel smoke test).
 
-[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.0...v0.1.1

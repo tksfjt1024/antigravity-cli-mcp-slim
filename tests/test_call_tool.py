@@ -14,6 +14,7 @@ from antigravity_cli_mcp_slim.server import (
     _agy_trailer,
     _format_result,
     _parse_agy_json,
+    _run_failed,
     consult_agy,
     on_call_tool,
     on_list_tools,
@@ -48,6 +49,14 @@ async def test_missing_arguments_key_does_not_raise():
 
 async def test_missing_required_key_is_reported_not_raised():
     result = await consult_agy({"query": "q"})
+    assert result.is_error is True
+    assert "`directory` is required" in _text(result)
+
+
+async def test_null_directory_is_rejected_as_a_missing_key():
+    # An explicit null clears a `key in args` presence check but then reaches Path(None)
+    # in _run_agy, where it surfaces as a TypeError the caller cannot act on.
+    result = await consult_agy({"query": "q", "directory": None})
     assert result.is_error is True
     assert "`directory` is required" in _text(result)
 
@@ -216,3 +225,53 @@ def test_format_result_error_with_json_envelope_adds_the_trailer():
     )
     assert "status=ERROR" in text
     assert "conversation_id=cid-3" in text
+
+
+def test_agy_trailer_carries_the_envelope_error():
+    # Observed shape on a --print-timeout hit: status=ERROR with the reason in `error`.
+    # Without it the reason reaches the caller only inside the raw stdout dump.
+    trailer = _agy_trailer(
+        {"status": "ERROR", "error": "timeout waiting for response", "conversation_id": "cid"}
+    )
+    assert "status=ERROR" in trailer
+    assert "error=timeout waiting for response" in trailer
+
+
+def test_run_failed_follows_the_envelope_when_the_exit_code_is_zero():
+    # agy owns the verdict on its own run. Reporting a run it calls failed as a
+    # successful tool call would leave the failure in prose only.
+    result = {
+        "ok": True,
+        "stdout": json.dumps(
+            {"status": "ERROR", "response": "", "error": "timeout waiting for response"}
+        ),
+    }
+    assert _run_failed(result) is True
+
+
+def test_run_failed_is_false_for_a_clean_envelope():
+    assert (
+        _run_failed({"ok": True, "stdout": json.dumps({"status": "SUCCESS", "response": "ok"})})
+        is False
+    )
+
+
+def test_run_failed_falls_back_to_the_exit_code_without_an_envelope():
+    # A caller that overrides --output-format through extra_args gets plain text, so the
+    # exit code stays the only verdict available.
+    assert _run_failed({"ok": True, "stdout": "hello"}) is False
+    assert _run_failed({"ok": False, "stdout": "hello"}) is True
+
+
+def test_format_result_opens_with_error_when_the_envelope_carries_one():
+    # _run_failed hands this back as isError, so the text must not open with [WARNING].
+    result = {
+        "ok": True,
+        "stdout": json.dumps(
+            {"status": "ERROR", "response": "", "error": "timeout waiting for response"}
+        ),
+    }
+    text = _format_result(result)
+    assert _run_failed(result) is True
+    assert text.startswith("[ERROR]")
+    assert "error=timeout waiting for response" in text
