@@ -32,9 +32,12 @@ Read `server.py` before you install. That is the point.
 
 ## Prerequisites
 
-- The `agy` CLI installed and on `$PATH` (or pointed to via `$AGY_CMD`). See the
+- The `agy` CLI, **version 1.1.8 or newer**, installed and on `$PATH` (or pointed
+  to via `$AGY_CMD`). See the
   [official Antigravity CLI repository](https://github.com/google-antigravity/antigravity-cli)
   and [install docs](https://antigravity.google/docs/cli-overview).
+  1.1.8 is where `--output-format json` arrived; this server always asks for it,
+  and older builds reject the flag.
 - `agy` already **authenticated** — this wrapper does not manage login; it
   surfaces `agy`'s own error output if the CLI is not ready.
 
@@ -101,6 +104,16 @@ uvx antigravity-cli-mcp-slim
 Runs a single `agy` invocation in non-interactive print mode (`agy --print`).
 `agy` is an agentic assistant: it autonomously reads files in `directory`
 (and any `add_dir`) to fulfill the request, then prints the response.
+
+The tool returns `agy`'s response text followed by one metadata line:
+
+```
+[agy] status=SUCCESS conversation_id=133cb55a-5128-463a-835c-b8362519876f total_tokens=18035
+```
+
+Pass that `conversation_id` back as `conversation` to resume the same run.
+Prefer it over `continue`, which races with any other invocation for whichever
+conversation happens to be the most recent one.
 
 | Parameter                       | Type     | Description                                                                                   |
 | ------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
