@@ -249,6 +249,44 @@ def test_run_failed_follows_the_envelope_when_the_exit_code_is_zero():
     assert _run_failed(result) is True
 
 
+def test_run_failed_trusts_a_nonempty_response_over_a_lingering_error():
+    # agy 1.1.17: a mid-run tool error the model recovered from stays in the envelope's
+    # `error` even though the loop completed and `response` carries the final answer
+    # (observed: "ContentOffset 70000 exceeds line range size 15820" on a run whose
+    # transcript ends with a full final answer). Failing the call would make the client
+    # discard that answer, so `error` is the verdict only when `response` is empty.
+    result = {
+        "ok": True,
+        "stdout": json.dumps(
+            {
+                "status": "ERROR",
+                "response": "the final answer",
+                "error": "ContentOffset 70000 exceeds line range size 15820",
+            }
+        ),
+    }
+    assert _run_failed(result) is False
+
+
+def test_format_result_keeps_a_lingering_error_visible_in_the_trailer():
+    # The run above comes back as a successful call, so the only place the lingering
+    # error survives is the trailer; losing it there would hide that anything went wrong.
+    result = {
+        "ok": True,
+        "stdout": json.dumps(
+            {
+                "status": "ERROR",
+                "response": "the final answer",
+                "error": "ContentOffset 70000 exceeds line range size 15820",
+            }
+        ),
+    }
+    text = _format_result(result)
+    assert text.startswith("the final answer")
+    assert "status=ERROR" in text
+    assert "error=ContentOffset 70000 exceeds line range size 15820" in text
+
+
 def test_run_failed_is_false_for_a_clean_envelope():
     assert (
         _run_failed({"ok": True, "stdout": json.dumps({"status": "SUCCESS", "response": "ok"})})

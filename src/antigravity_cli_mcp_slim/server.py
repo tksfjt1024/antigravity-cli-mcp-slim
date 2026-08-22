@@ -248,11 +248,22 @@ def _run_failed(result: dict[str, Any]) -> bool:
     `--print-timeout` hit fills it (and exits 1), so an exit-0 path that still carries an
     `error` would otherwise be handed back as a successful call whose failure shows up
     only in the text a human reads.
+
+    The envelope's `error` counts only when `response` is empty. agy (observed on
+    1.1.17) lets a mid-run tool error the model already recovered from linger in the
+    envelope even though the agent loop ran to completion: the model misused
+    `view_file`'s ContentOffset continuation, got "ContentOffset 70000 exceeds line
+    range size 15820", recovered, and produced its full final answer — which the
+    envelope carried in `response` next to that stale `error`. Marking such a run
+    isError makes clients discard the answer; the trailer still shows `status` and
+    `error`, so the lingering error stays visible without costing the response.
     """
     if not result["ok"]:
         return True
     envelope = _parse_agy_json(result.get("stdout", ""))
-    return bool(envelope and envelope.get("error"))
+    if not envelope or not envelope.get("error"):
+        return False
+    return not str(envelope.get("response") or "").strip()
 
 
 def _format_result(result: dict[str, Any]) -> str:
