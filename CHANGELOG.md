@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1]
+
+### Fixed
+- A run that completed with a final answer is no longer reported as a failed
+  (`isError`) call when agy leaves a recovered mid-run tool error in the envelope's
+  `error` field. Observed on agy 1.1.17: the model misuses `view_file`'s
+  `ContentOffset` continuation, gets an error such as `ContentOffset 70000 exceeds
+  line range size 15820`, recovers, and finishes the run — and the envelope then
+  carries both the full `response` and that stale `error`. The envelope's `error`
+  now counts as the run's verdict only when `response` is empty; the `[agy]`
+  trailer still carries `status` and `error`, so the lingering error stays visible.
+
 ## [0.2.0]
 
 ### Changed
@@ -128,7 +140,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--add-dir` invariant) and `tests/test_subprocess_stdin_isolation.py`
   (stdin DEVNULL invariant and a parallel smoke test).
 
-[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.1...v0.1.2
