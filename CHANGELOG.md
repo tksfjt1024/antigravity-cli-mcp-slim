@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2]
+
+### Fixed
+- A turn that `agy` did not finish is now reported as a failed (`isError`) call.
+  Starting in `agy` 1.4.11, a turn that stops early (a `--print-timeout` hit, a
+  mid-turn error, or an interruption) exits 0 and reports the cause in the envelope's
+  new `finished_reason` field; on 1.4.12 a timed-out run even reports `status=SUCCESS`
+  with no `error`. 0.2.1 returned such runs as successful calls, along with any
+  partial answer, because a non-empty `response` overrode a lingering `error`. A run
+  whose envelope carries `finished_reason` now fails regardless of `response`: the
+  output starts with `[ERROR] agy did not finish the turn (finished_reason=…)`, and
+  any partial answer is kept under `partial response:`.
+
+### Added
+- The `[agy]` metadata line now includes `finished_reason` when `agy` reports one.
+
 ## [0.2.1]
 
 ### Fixed
@@ -140,7 +156,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--add-dir` invariant) and `tests/test_subprocess_stdin_isolation.py`
   (stdin DEVNULL invariant and a parallel smoke test).
 
-[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.2...v0.1.3

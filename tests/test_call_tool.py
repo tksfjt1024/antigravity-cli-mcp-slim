@@ -313,3 +313,74 @@ def test_format_result_opens_with_error_when_the_envelope_carries_one():
     assert _run_failed(result) is True
     assert text.startswith("[ERROR]")
     assert "error=timeout waiting for response" in text
+
+
+# agy 1.4.11 and later exit 0 when a turn stops early and say so in `finished_reason`.
+# The two shapes below are the envelopes agy 1.4.12 returned (observed), trimmed.
+_PRINT_TIMEOUT_ENVELOPE = {
+    "conversation_id": "cid-pt",
+    "status": "SUCCESS",
+    "response": "",
+    "finished_reason": "print_timeout",
+}
+_PARTIAL_ERROR_ENVELOPE = {
+    "conversation_id": "cid-err",
+    "status": "ERROR",
+    "response": "one\ntwo\nthree\n",
+    "error": "Your previous response was blocked by content safety filters",
+    "finished_reason": "error",
+}
+
+
+def test_agy_trailer_carries_finished_reason():
+    assert "finished_reason=print_timeout" in _agy_trailer(_PRINT_TIMEOUT_ENVELOPE)
+    assert "finished_reason" not in _agy_trailer({"status": "SUCCESS", "response": "ok"})
+
+
+def test_run_failed_when_agy_did_not_finish_the_turn():
+    # status=SUCCESS and no `error`: only finished_reason says the turn was cut short.
+    assert _run_failed({"ok": True, "stdout": json.dumps(_PRINT_TIMEOUT_ENVELOPE)}) is True
+
+
+def test_run_failed_when_a_partial_response_comes_with_finished_reason():
+    # A non-empty response no longer means the loop completed once agy says it did not.
+    assert _run_failed({"ok": True, "stdout": json.dumps(_PARTIAL_ERROR_ENVELOPE)}) is True
+
+
+def test_format_result_print_timeout_opens_with_error_and_names_the_reason():
+    text = _format_result(
+        {
+            "ok": True,
+            "stdout": json.dumps(_PRINT_TIMEOUT_ENVELOPE),
+            "stderr": (
+                "[agy] print timeout after 4s with turn in progress; returning partial output\n"
+            ),
+            "argv": ["agy", "--print", "q"],
+            "cwd": "/tmp",
+        }
+    )
+    assert text.startswith("[ERROR] agy did not finish the turn (finished_reason=print_timeout).")
+    assert "status=SUCCESS finished_reason=print_timeout" in text
+    assert "partial response:" not in text
+    assert "print timeout after 4s" in text
+    assert "argv: " in text
+
+
+def test_format_result_keeps_the_partial_response_of_an_unfinished_turn():
+    text = _format_result({"ok": True, "stdout": json.dumps(_PARTIAL_ERROR_ENVELOPE)})
+    assert text.startswith("[ERROR] agy did not finish the turn (finished_reason=error).")
+    assert "partial response:\none\ntwo\nthree" in text
+    assert "error=Your previous response was blocked" in text
+
+
+def test_lingering_error_without_finished_reason_still_succeeds():
+    # The 0.2.1 case: a completed run whose envelope still carries a recovered error.
+    # agy omits finished_reason for a turn that finished, so it stays a success.
+    envelope = {
+        "status": "ERROR",
+        "response": "the final answer",
+        "error": "ContentOffset 70000 exceeds line range size 15820",
+    }
+    result = {"ok": True, "stdout": json.dumps(envelope)}
+    assert _run_failed(result) is False
+    assert _format_result(result).startswith("the final answer")
