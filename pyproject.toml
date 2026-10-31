@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "antigravity-cli-mcp-slim"
-version = "0.2.1"
+version = "0.2.2"
 description = "A thin, auditable MCP server wrapping the Antigravity CLI (agy). Forward-compatible with future CLI flags via extra_args passthrough."
 readme = "README.md"
 requires-python = ">=3.10"

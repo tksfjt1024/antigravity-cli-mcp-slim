@@ -120,6 +120,16 @@ and the tool result is flagged `isError` instead of coming back as a successful 
 [agy] status=ERROR error=timeout waiting for response conversation_id=a35d1505-804e-4159-9c76-ea2ff821c290
 ```
 
+Starting in `agy` 1.4.11, a turn that stops early (a `print_timeout` hit, an error, or
+an interruption) exits 0 and records the cause in `finished_reason`. Such a run is also
+flagged `isError`, even when `agy` returns a partial answer: the output starts with
+`[ERROR] agy did not finish the turn (finished_reason=…)`, followed by the metadata line
+and, if present, the partial answer under `partial response:`.
+
+```
+[agy] status=SUCCESS finished_reason=print_timeout conversation_id=38132840-0311-4450-bc1f-ec153a925b98
+```
+
 Pass that `conversation_id` back as `conversation` to resume the same run.
 Prefer it over `continue`, which races with any other invocation for whichever
 conversation happens to be the most recent one.

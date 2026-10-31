@@ -223,14 +223,21 @@ def _agy_trailer(envelope: dict[str, Any]) -> str:
     way to resume a run, yet before agy grew --output-format json a caller had no way to
     learn the id it was supposed to pass back.
 
-    `error` is agy's own reason for a run that did not work — a `--print-timeout` hit
-    returns `status=ERROR` with `error="timeout waiting for response"` (observed). Without
-    it here the reason would survive only inside the raw stdout dump of the failure branch.
+    `error` is agy's own reason for a run that did not work — before agy 1.4.11 a
+    `--print-timeout` hit returned `status=ERROR` with `error="timeout waiting for
+    response"` (observed). Without it here the reason would survive only inside the raw
+    stdout dump of the failure branch.
+
+    `finished_reason` is how agy 1.4.11 and later say a turn did not run to its end
+    (`print_timeout`, `interrupted` or `error`; absent when the turn finished normally).
     """
     bits = [f"status={envelope.get('status') or 'UNKNOWN'}"]
     error = envelope.get("error")
     if error:
         bits.append(f"error={error}")
+    finished_reason = envelope.get("finished_reason")
+    if finished_reason:
+        bits.append(f"finished_reason={finished_reason}")
     conversation_id = envelope.get("conversation_id")
     if conversation_id:
         bits.append(f"conversation_id={conversation_id}")
@@ -257,10 +264,21 @@ def _run_failed(result: dict[str, Any]) -> bool:
     envelope carried in `response` next to that stale `error`. Marking such a run
     isError makes clients discard the answer; the trailer still shows `status` and
     `error`, so the lingering error stays visible without costing the response.
+
+    `finished_reason` settles that ambiguity on agy 1.4.11 and later, which exits 0 and
+    returns whatever the model had written when a turn stops early (observed on 1.4.12:
+    a `--print-timeout` hit comes back as `status=SUCCESS`, no `error`, an empty or
+    partial `response` and `finished_reason=print_timeout`; a mid-turn safety-filter
+    stop as `status=ERROR` with a 3,680-character partial `response` and
+    `finished_reason=error`). agy sets the field only for a turn that did not finish, so
+    its presence fails the call regardless of `response`; the partial text still goes
+    back in the result.
     """
     if not result["ok"]:
         return True
     envelope = _parse_agy_json(result.get("stdout", ""))
+    if envelope and envelope.get("finished_reason"):
+        return True
     if not envelope or not envelope.get("error"):
         return False
     return not str(envelope.get("response") or "").strip()
@@ -278,18 +296,30 @@ def _format_result(result: dict[str, Any]) -> str:
             ]
         else:
             response = str(envelope.get("response") or "")
-            if response.strip():
+            finished_reason = envelope.get("finished_reason")
+            if finished_reason:
+                # _run_failed fails this call, so the text opens with [ERROR] like every
+                # other failure; the partial answer stays below rather than being dropped.
+                parts = [
+                    f"[ERROR] agy did not finish the turn (finished_reason={finished_reason}).",
+                    _agy_trailer(envelope),
+                ]
+                if response.strip():
+                    parts.append(f"partial response:\n{response.rstrip()}")
+            elif response.strip():
                 return f"{response.rstrip()}\n\n{_agy_trailer(envelope)}"
-            # agy exited 0 with an empty response. Without the envelope this was
-            # indistinguishable from a run that could not work: a headless run that hits an
-            # unapproved tool permission (no allow-rule in settings.json) gets auto-denied
-            # and the agent loop ends with nothing to print, while the process still exits
-            # 0. `status` in the trailer is what tells those two apart now.
-            #
-            # The marker follows the same envelope field _run_failed reads, so the text does
-            # not open with [WARNING] on a result the client is being handed as isError.
-            marker = "[ERROR]" if envelope.get("error") else "[WARNING]"
-            parts = [f"{marker} agy returned no response text.", _agy_trailer(envelope)]
+            else:
+                # agy exited 0 with an empty response. Without the envelope this was
+                # indistinguishable from a run that could not work: a headless run that hits
+                # an unapproved tool permission (no allow-rule in settings.json) gets
+                # auto-denied and the agent loop ends with nothing to print, while the process
+                # still exits 0. `status` in the trailer is what tells those two apart now.
+                #
+                # The marker follows the same envelope field _run_failed reads, so the text
+                # does not open with [WARNING] on a result the client is being handed as
+                # isError.
+                marker = "[ERROR]" if envelope.get("error") else "[WARNING]"
+                parts = [f"{marker} agy returned no response text.", _agy_trailer(envelope)]
         if result.get("stderr"):
             parts.append(f"stderr:\n{result['stderr']}")
         parts.append(f"argv: {result.get('argv')}")
