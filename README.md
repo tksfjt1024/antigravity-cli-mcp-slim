@@ -121,16 +121,34 @@ and the tool result is flagged `isError` instead of coming back as a successful 
 ```
 
 Starting in `agy` 1.4.11, a turn that stops early (a `print_timeout` hit, an error, or
-an interruption) exits 0 and records the cause in `finished_reason`. Such a run is also
-flagged `isError`, even when `agy` returns a partial answer: the output starts with
-`[ERROR] agy did not finish the turn (finished_reason=…)`, followed by the metadata line
-and, if present, the partial answer under `partial response:`.
+an interruption) records the cause in `finished_reason`. The tool result for such a
+turn is flagged `isError`, even when `agy` reports `status=SUCCESS` or returns a
+partial answer, and `finished_reason` on the metadata line is what tells a timeout
+apart from other failures. How the output starts depends on `agy`'s exit code:
+
+- When `agy` exits 0, the output starts with
+  `[ERROR] agy did not finish the turn (finished_reason=…)`, followed by the metadata
+  line and, if present, the partial answer under `partial response:`. On `agy` 1.4.12,
+  a `print_timeout` hit and a mid-turn error both exited 0.
+- When `agy` exits non-zero, the output starts with an `[ERROR] agy failed` line and a
+  `returncode=…` line, followed by the metadata line, `agy`'s stderr and its raw
+  stdout. A partial answer, if any, stays in the `response` field of the stdout JSON.
+  Starting in `agy` 1.5.0, a `print_timeout` hit exits 3.
+
+On a `print_timeout` hit, `agy`'s stderr can hold a line of its own that also starts
+with `[agy]` (`[agy] print timeout after …`); the metadata line is the one before
+`stderr:`.
+
+Either way the metadata line carries `finished_reason`. A `print_timeout` hit on 1.4.12
+(first line) and on 1.5.0 (second line):
 
 ```
 [agy] status=SUCCESS finished_reason=print_timeout conversation_id=38132840-0311-4450-bc1f-ec153a925b98
+[agy] status=ERROR error=print timeout after 3s with the turn still in progress; the response is partial finished_reason=print_timeout conversation_id=6226bd86-8cdd-42e7-bb29-5005ebcfa955 total_tokens=0
 ```
 
-Pass that `conversation_id` back as `conversation` to resume the same run.
+Pass the `conversation_id` from the metadata line back as `conversation` to resume the
+same run.
 Prefer it over `continue`, which races with any other invocation for whichever
 conversation happens to be the most recent one.
 
@@ -194,13 +212,14 @@ The two are mutually exclusive; passing both returns an error.
 
 There are two independent timeouts:
 
-- `print_timeout` — `agy`'s own wait timeout (Go duration; `agy` defaults to
-  about 5 minutes).
+- `print_timeout` — `agy`'s own wait timeout (Go duration; `agy` 1.5.0 defaults to
+  `0s`, which waits until the turn completes).
 - `timeout_seconds` — this wrapper's hard wall-clock limit (default 660).
 
 Keep `timeout_seconds` longer than `print_timeout` so `agy` can finish or time
 out cleanly before the wrapper force-kills the subprocess. When you raise
-`print_timeout` for a long task, raise `timeout_seconds` to match.
+`print_timeout` for a long task, raise `timeout_seconds` to match. On `agy` 1.5.0,
+without `print_timeout`, only `timeout_seconds` bounds the run.
 
 On timeout, the wrapper kills the subprocess's whole process group and then
 waits up to 20 additional seconds to collect any buffered output and reap the

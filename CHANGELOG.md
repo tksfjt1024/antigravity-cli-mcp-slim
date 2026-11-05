@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The README, AGENTS.md and the code comments now describe `agy` 1.5.0, which exits 3
+  on a `--print-timeout` hit. Such a run comes back as `[ERROR] agy failed` with
+  `returncode=3`; the `[agy]` metadata line still carries
+  `finished_reason=print_timeout`, and any partial answer stays in the `response` field
+  of the raw stdout JSON. The README also gives 1.5.0's `print_timeout` default, `0s`
+  (wait until the turn completes). The behaviour of the server did not change.
+
 ## [0.2.2]
 
 ### Fixed
