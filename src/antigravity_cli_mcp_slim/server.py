@@ -252,9 +252,10 @@ def _run_failed(result: dict[str, Any]) -> bool:
 
     A non-zero exit is always a failure. The envelope's `error` is consulted on top of
     that because it is agy's own verdict on the run rather than the shell's: a
-    `--print-timeout` hit fills it (and exits 1), so an exit-0 path that still carries an
-    `error` would otherwise be handed back as a successful call whose failure shows up
-    only in the text a human reads.
+    `--print-timeout` hit filled it before agy 1.4.11 (exiting 1) and fills it again on
+    1.5.0 (exiting 3), so an exit-0 path that still carries an `error` would otherwise be
+    handed back as a successful call whose failure shows up only in the text a human
+    reads.
 
     The envelope's `error` counts only when `response` is empty. agy (observed on
     1.1.17) lets a mid-run tool error the model already recovered from linger in the
@@ -265,14 +266,17 @@ def _run_failed(result: dict[str, Any]) -> bool:
     isError makes clients discard the answer; the trailer still shows `status` and
     `error`, so the lingering error stays visible without costing the response.
 
-    `finished_reason` settles that ambiguity on agy 1.4.11 and later, which exits 0 and
-    returns whatever the model had written when a turn stops early (observed on 1.4.12:
-    a `--print-timeout` hit comes back as `status=SUCCESS`, no `error`, an empty or
-    partial `response` and `finished_reason=print_timeout`; a mid-turn safety-filter
-    stop as `status=ERROR` with a 3,680-character partial `response` and
-    `finished_reason=error`). agy sets the field only for a turn that did not finish, so
-    its presence fails the call regardless of `response`; the partial text still goes
-    back in the result.
+    `finished_reason` (added in agy 1.4.11) settles that ambiguity on agy 1.4.12, which
+    exits 0 and returns whatever the model had written when a `--print-timeout` hit or a
+    mid-turn error stops a turn early (observed: a `--print-timeout` hit comes back as
+    `status=SUCCESS`, no `error`, an empty or partial `response` and
+    `finished_reason=print_timeout`; a mid-turn safety-filter stop as `status=ERROR` with a
+    3,680-character partial `response` and `finished_reason=error`). agy sets the field only
+    for a turn that did not finish, so its presence fails the call regardless of
+    `response`; the partial text still goes back in the result. agy 1.5.0 exits 3 on a
+    `--print-timeout` hit instead (observed), which the exit-code check fails before the
+    envelope is read. How a mid-turn error or an interruption exits on 1.5.0 is not
+    known, so the `finished_reason` check stays.
     """
     if not result["ok"]:
         return True

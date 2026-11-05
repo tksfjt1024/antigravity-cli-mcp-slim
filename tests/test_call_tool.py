@@ -315,7 +315,8 @@ def test_format_result_opens_with_error_when_the_envelope_carries_one():
     assert "error=timeout waiting for response" in text
 
 
-# agy 1.4.11 and later exit 0 when a turn stops early and say so in `finished_reason`.
+# agy 1.4.12 exits 0 when a `--print-timeout` hit or a mid-turn error stops a turn early
+# and says so in `finished_reason`.
 # The two shapes below are the envelopes agy 1.4.12 returned (observed), trimmed.
 _PRINT_TIMEOUT_ENVELOPE = {
     "conversation_id": "cid-pt",

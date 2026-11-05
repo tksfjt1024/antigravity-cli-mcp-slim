@@ -149,15 +149,18 @@ as a successful tool call whose failure is legible only to a human reading the t
 The trailer carries `error` for the same reason: otherwise it survives only inside the
 raw stdout dump that the non-zero-exit branch happens to print.
 
-Starting in agy 1.4.11, a turn that stops early exits 0 and reports why in
-`finished_reason` (`print_timeout`, `interrupted`, or `error`; omitted when the turn
-finishes normally). On 1.4.12 a `--print-timeout` hit comes back as `status=SUCCESS`
-with no `error` at all, and a turn cut short can carry a partial `response` (observed).
-`_run_failed` therefore fails any run whose envelope has `finished_reason`, regardless
-of `response`, and `_format_result` keeps the partial text under `partial response:`
-rather than dropping it. The 0.2.1 rule in `_run_failed` that lets a non-empty
-`response` override a lingering `error` (a recovered mid-run tool error agy leaves
-behind) applies only when `finished_reason` is absent.
+Starting in agy 1.4.11, a turn that stops early reports why in `finished_reason`
+(`print_timeout`, `interrupted`, or `error`; omitted when the turn finishes normally).
+On 1.4.12 a `--print-timeout` hit and a mid-turn error both exit 0: a `--print-timeout`
+hit comes back as `status=SUCCESS` with no `error` at all, and a turn cut short can
+carry a partial `response` (observed). Starting in 1.5.0 a `--print-timeout` hit exits 3
+instead, with `status=ERROR` and the reason in `error` (observed); how a mid-turn error
+or an interruption exits on 1.5.0 is not known. `_run_failed` therefore fails any run
+whose envelope has `finished_reason`, regardless of `response` or the exit code. On the
+exit-0 path `_format_result` keeps the partial text under `partial response:` rather
+than dropping it; on a non-zero exit it stays in the raw stdout dump. The 0.2.1 rule in
+`_run_failed` that lets a non-empty `response` override a lingering `error` (a recovered
+mid-run tool error agy leaves behind) applies only when `finished_reason` is absent.
 
 ### Keep the prompt as the token right after `--print`
 
