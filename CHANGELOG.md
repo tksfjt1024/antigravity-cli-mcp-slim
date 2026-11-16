@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3]
+
 ### Changed
 - The README, AGENTS.md and the code comments now describe `agy` 1.5.0, which exits 3
   on a `--print-timeout` hit. Such a run comes back as `[ERROR] agy failed` with
@@ -164,7 +166,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--add-dir` invariant) and `tests/test_subprocess_stdin_isolation.py`
   (stdin DEVNULL invariant and a parallel smoke test).
 
-[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.1.3...v0.2.0
