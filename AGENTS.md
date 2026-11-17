@@ -162,6 +162,24 @@ than dropping it; on a non-zero exit it stays in the raw stdout dump. The 0.2.1 
 `_run_failed` that lets a non-empty `response` override a lingering `error` (a recovered
 mid-run tool error agy leaves behind) applies only when `finished_reason` is absent.
 
+### `readOnlyHint` is opt-in
+
+`$ANTIGRAVITY_CLI_MCP_SLIM_READ_ONLY_HINT` (`_read_only_hint_enabled`) makes
+`on_list_tools` list `consult_agy` with `annotations.readOnlyHint = true`. It is off by
+default because the declaration is stronger than the behaviour: MCP defines it as "does
+not modify its environment", and, depending on its own permission settings, `agy`
+edits files and runs commands in print mode.
+Claude Code (2.1.326) runs adjacent calls concurrently only when each declares the hint,
+and runs a call without it on its own, which is the one reason to turn it on; it may also
+use the same declaration for permission decisions, which this project has not checked. Do
+not make it the default. Only `readOnlyHint` is set: the MCP specification says
+`destructiveHint` and `idempotentHint` are meaningful only when `readOnlyHint` is false,
+so they add nothing next to it, and `openWorldHint` (default true) says whether the tool
+reaches an open world, which this setting is not about. An unrecognised value raises at
+startup rather than reading as off. If a second tool is ever added, give it the hint
+too: adjacent calls run concurrently only when each of them declares it. Regression
+tests: `tests/test_read_only_hint.py`, including ones that start the server over stdio.
+
 ### Keep the prompt as the token right after `--print`
 
 `agy` treats `--print` / `--prompt` / `-p` as a string flag that takes the

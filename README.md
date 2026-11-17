@@ -103,7 +103,8 @@ uvx antigravity-cli-mcp-slim
 
 Runs a single `agy` invocation in non-interactive print mode (`agy --print`).
 `agy` is an agentic assistant: it autonomously reads files in `directory`
-(and any `add_dir`) to fulfill the request, then prints the response.
+(and any `add_dir`) to fulfill the request, then prints the response. Depending on its
+own permission settings, it can also edit files and run commands.
 
 The tool returns `agy`'s response text followed by one metadata line:
 
@@ -241,13 +242,61 @@ immediately without updating this server:
 }
 ```
 
+## Letting the client run calls concurrently (`readOnlyHint`)
+
+Claude Code (2.1.326) runs calls to tools that declare `readOnlyHint: true`
+concurrently with each other when they are next to each other in one response. A
+call to a tool without the declaration runs on its own, after the calls before it
+have finished, so several `consult_agy` calls placed in one response wait for each
+other. This server does not make the declaration by default. Set
+`ANTIGRAVITY_CLI_MCP_SLIM_READ_ONLY_HINT=1` in the entry's `env` block to have it list
+`consult_agy` with `annotations: {"readOnlyHint": true}` (and no other annotation):
+
+```json
+{
+  "mcpServers": {
+    "antigravity-cli": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["antigravity-cli-mcp-slim"],
+      "env": { "ANTIGRAVITY_CLI_MCP_SLIM_READ_ONLY_HINT": "1" }
+    }
+  }
+}
+```
+
+The value is `1` or `true` to turn it on and `0`, `false` or an empty string to leave it
+off (case does not matter); any other value makes the server exit at startup. Without
+the variable, the tool list is unchanged.
+
+Read this before turning it on:
+
+- **The declaration is stronger than what `consult_agy` does.** The MCP specification
+  defines `readOnlyHint: true` as "the tool does not modify its environment". `agy` is
+  an agentic assistant: depending on its own permission settings, it can create, edit
+  and delete files and run commands in print mode, and `dangerously_skip_permissions`
+  approves all of them. Claude Code's documentation also describes the hint as "the tool
+  changes nothing"; this setting is for the concurrency, not because the tool is
+  read-only. Concurrent calls that write to the same directory can interfere with each
+  other, and `continue` resumes the most recent conversation, which concurrent calls
+  share, so use `conversation` for calls that run together.
+- **The client may use the same declaration for more than concurrency.** Claude Code's
+  documentation describes what the hint does for retrying a call after a dropped
+  connection and for concurrency, and does not say whether the declaration also affects
+  its permission decisions; this project has not checked that. The MCP specification
+  says clients should never make tool use decisions based on annotations from untrusted
+  servers, and other clients may read the hint when they decide whether to ask you
+  before a call. Check your client's documentation before enabling it for a server that
+  can write.
+
 ## Configuration
 
-| Environment variable                  | Default | Purpose                                  |
-| ------------------------------------- | ------- | ---------------------------------------- |
-| `AGY_CMD`                             | `agy`   | Path to the `agy` CLI binary             |
-| `ANTIGRAVITY_CLI_MCP_SLIM_TIMEOUT`    | `660`   | Default subprocess timeout in seconds    |
-| `ANTIGRAVITY_CLI_MCP_SLIM_LOG_LEVEL`  | `INFO`  | Logging level for stderr diagnostics     |
+| Environment variable                         | Default | Purpose                                                         |
+| -------------------------------------------- | ------- | --------------------------------------------------------------- |
+| `AGY_CMD`                                    | `agy`   | Path to the `agy` CLI binary                                    |
+| `ANTIGRAVITY_CLI_MCP_SLIM_TIMEOUT`           | `660`   | Default subprocess timeout in seconds                           |
+| `ANTIGRAVITY_CLI_MCP_SLIM_LOG_LEVEL`         | `INFO`  | Logging level for stderr diagnostics                            |
+| `ANTIGRAVITY_CLI_MCP_SLIM_READ_ONLY_HINT`    | off     | `1` or `true` lists the tool with `readOnlyHint: true` (above)  |
 
 ## Development
 

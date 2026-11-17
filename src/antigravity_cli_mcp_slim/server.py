@@ -31,12 +31,15 @@ from mcp.types import (
     PaginatedRequestParams,
     TextContent,
     Tool,
+    ToolAnnotations,
 )
 
 logger = logging.getLogger("antigravity_cli_mcp_slim")
 
 AGY_CMD = os.environ.get("AGY_CMD", "agy")
 DEFAULT_TIMEOUT = int(os.environ.get("ANTIGRAVITY_CLI_MCP_SLIM_TIMEOUT", "660"))
+
+_READ_ONLY_HINT_ENV = "ANTIGRAVITY_CLI_MCP_SLIM_READ_ONLY_HINT"
 
 _PKG_NAME = "antigravity-cli-mcp-slim"
 # The Server is built at the bottom of this file: v2 takes the handlers as constructor
@@ -540,10 +543,32 @@ async def consult_agy(arguments: dict[str, Any] | None) -> CallToolResult:
     )
 
 
+def _read_only_hint_enabled() -> bool:
+    """Whether $ANTIGRAVITY_CLI_MCP_SLIM_READ_ONLY_HINT asks for `readOnlyHint: true`.
+
+    `1` or `true` turns it on; unset, empty, `0` or `false` leaves it off. Anything else
+    raises, so a typo does not silently leave the declaration off. _amain() calls this before
+    serving, so the error appears at startup rather than on the first tool listing.
+
+    Claude Code runs adjacent tool calls concurrently only when each declares
+    `readOnlyHint: true`, and the hint is off by default because it is stronger than what
+    `consult_agy` does: agy can edit files and run commands.
+    """
+    raw = os.environ.get(_READ_ONLY_HINT_ENV, "").strip().lower()
+    if raw in ("", "0", "false"):
+        return False
+    if raw in ("1", "true"):
+        return True
+    raise ValueError(f"${_READ_ONLY_HINT_ENV} must be 1, true, 0 or false, not {raw!r}")
+
+
 async def on_list_tools(
     ctx: ServerRequestContext, params: PaginatedRequestParams | None
 ) -> ListToolsResult:
-    return ListToolsResult(tools=[_TOOL])
+    if not _read_only_hint_enabled():
+        return ListToolsResult(tools=[_TOOL])
+    annotations = ToolAnnotations(read_only_hint=True)
+    return ListToolsResult(tools=[_TOOL.model_copy(update={"annotations": annotations})])
 
 
 async def on_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -578,6 +603,8 @@ async def _amain() -> None:
         level=os.environ.get("ANTIGRAVITY_CLI_MCP_SLIM_LOG_LEVEL", "INFO"),
         format="[antigravity-cli-mcp-slim] %(levelname)s %(message)s",
     )
+    if _read_only_hint_enabled():
+        logger.info("declaring readOnlyHint=true on consult_agy (%s)", _READ_ONLY_HINT_ENV)
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 

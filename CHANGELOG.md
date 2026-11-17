@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4]
+
+### Added
+- `ANTIGRAVITY_CLI_MCP_SLIM_READ_ONLY_HINT=1` (or `true`, case does not matter) makes
+  the server list `consult_agy` with `annotations: {"readOnlyHint": true}`. Claude Code
+  (2.1.326) runs adjacent MCP tool calls concurrently only when each of their tools
+  declares `readOnlyHint`, and runs a call to a tool without it on its own, so several
+  `consult_agy` calls placed in one response run one after another. No other annotation
+  is added. Without the variable, or with `0`, `false` or an empty value, the tool list is
+  unchanged; any other value makes the server exit at startup. The declaration says the
+  tool does not modify its environment, which is stronger than what `consult_agy` does
+  (depending on its own permission settings, `agy` edits files and runs commands in print
+  mode), and a client may use the same declaration for other decisions, such as asking
+  before a call. The README says what to check before turning it on.
+
 ## [0.2.3]
 
 ### Changed
@@ -166,7 +181,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--add-dir` invariant) and `tests/test_subprocess_stdin_isolation.py`
   (stdin DEVNULL invariant and a parallel smoke test).
 
-[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tksfjt1024/antigravity-cli-mcp-slim/compare/v0.2.0...v0.2.1
